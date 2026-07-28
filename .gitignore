@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.log
+
+# Generated output (deployment-specific, shouldn't be committed by default).
+# No leading slash -- catches `jfvb build`'s default ./output wherever it's
+# run from (repo root, tests/, a scratch dir, etc), not just at the repo root.
+output/
+images.txt
+mirror-images.sh

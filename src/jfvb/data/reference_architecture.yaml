@@ -1,0 +1,106 @@
+# JFrog self-managed reference architecture sizing guidance, transcribed from
+# https://jfrog.com/reference-architecture/self-managed/deployment/sizing/aws/
+# (AWS Sizing page, "Last updated: June 2026").
+#
+# Values are stored cloud-agnostically (vCPU / memory in GiB / replica counts
+# / DB max_connections). The `aws_instance_type` fields are optional metadata
+# used only to annotate SUMMARY.md -- they are never written into the
+# generated customvalues.yaml.
+#
+# jfvb treats these numbers as the source of truth for infrastructure sizing.
+# Where they overlap with the chart's own bundled sizing/platform-*.yaml
+# profiles, the reference-architecture numbers win (see sizing.py). This
+# matters most for the bundled PostgreSQL: the chart's sizing profiles set
+# roughly HALF the vCPU/memory that this reference architecture recommends
+# for the equivalent managed RDS instance at every tier -- confirmed by
+# diffing platform-small/medium/large.yaml against this table.
+
+tiers:
+  small:
+    artifactory:
+      replicas: 1
+      nginx_replicas: 1
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      node_pool_federation_apptrust: { vcpu: 16, memory_gb: 32, aws_instance_type: c8g.4xlarge }
+      nginx_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      postgres: { vcpu: 8, memory_gb: 32, max_connections: 100, aws_instance_type: db.m8g.2xlarge }
+    xray:
+      replicas: 1
+      rabbitmq_replicas: 1
+      node_pool: { vcpu: 8, memory_gb: 16, aws_instance_type: c8g.2xlarge }
+      rabbitmq_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      jas_node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      postgres: { vcpu: 4, memory_gb: 16, max_connections: 200, aws_instance_type: db.m8g.xlarge }
+
+  medium:
+    artifactory:
+      replicas: 2
+      nginx_replicas: 2
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      node_pool_federation_apptrust: { vcpu: 16, memory_gb: 32, aws_instance_type: c8g.4xlarge }
+      nginx_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      postgres: { vcpu: 16, memory_gb: 64, max_connections: 200, aws_instance_type: db.m8g.4xlarge }
+    xray:
+      replicas: 2
+      rabbitmq_replicas: 3
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      rabbitmq_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      jas_node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      postgres: { vcpu: 8, memory_gb: 32, max_connections: 500, aws_instance_type: db.m8g.2xlarge }
+
+  large:
+    artifactory:
+      replicas: 3
+      nginx_replicas: 2
+      node_pool: { vcpu: 16, memory_gb: 64, aws_instance_type: m8g.4xlarge }
+      node_pool_federation_apptrust: { vcpu: 32, memory_gb: 64, aws_instance_type: c8g.8xlarge }
+      nginx_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      postgres: { vcpu: 32, memory_gb: 128, max_connections: 600, aws_instance_type: db.m8g.8xlarge }
+    xray:
+      replicas: 2
+      rabbitmq_replicas: 3
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      rabbitmq_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      jas_node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      postgres: { vcpu: 16, memory_gb: 64, max_connections: 600, aws_instance_type: db.m8g.4xlarge }
+
+  xlarge:
+    artifactory:
+      replicas: 4
+      nginx_replicas: 2
+      node_pool: { vcpu: 16, memory_gb: 64, aws_instance_type: m8g.4xlarge }
+      node_pool_federation_apptrust: { vcpu: 32, memory_gb: 64, aws_instance_type: c8g.8xlarge }
+      nginx_node_pool: { vcpu: 8, memory_gb: 16, aws_instance_type: c8g.2xlarge }
+      postgres: { vcpu: 48, memory_gb: 192, max_connections: 2000, aws_instance_type: db.m8g.12xlarge }
+    xray:
+      replicas: 2
+      rabbitmq_replicas: 3
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      rabbitmq_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      jas_node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      postgres: { vcpu: 32, memory_gb: 128, max_connections: 1200, aws_instance_type: db.m8g.8xlarge }
+
+  2xlarge:
+    artifactory:
+      replicas: 6
+      nginx_replicas: 3
+      node_pool: { vcpu: 16, memory_gb: 64, aws_instance_type: m8g.4xlarge }
+      node_pool_federation_apptrust: { vcpu: 32, memory_gb: 64, aws_instance_type: c8g.8xlarge }
+      nginx_node_pool: { vcpu: 8, memory_gb: 16, aws_instance_type: c8g.2xlarge }
+      postgres: { vcpu: 64, memory_gb: 256, max_connections: 5000, aws_instance_type: db.m8g.16xlarge }
+    xray:
+      replicas: 3
+      rabbitmq_replicas: 3
+      node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      rabbitmq_node_pool: { vcpu: 4, memory_gb: 8, aws_instance_type: c8g.xlarge }
+      jas_node_pool: { vcpu: 8, memory_gb: 32, aws_instance_type: m8g.2xlarge }
+      postgres: { vcpu: 48, memory_gb: 192, max_connections: 2000, aws_instance_type: db.m8g.12xlarge }
+
+# Chart sizing profile filenames, keyed the same way, for the sizing engine to
+# fetch the matching JVM/tomcat/HPA baseline from a live-pulled chart.
+chart_sizing_profile_files:
+  small: sizing/platform-small.yaml
+  medium: sizing/platform-medium.yaml
+  large: sizing/platform-large.yaml
+  xlarge: sizing/platform-xlarge.yaml
+  2xlarge: sizing/platform-2xlarge.yaml

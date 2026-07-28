@@ -1,0 +1,32 @@
+[project]
+name = "jfvb"
+version = "0.1.0"
+description = "Interactive builder for a tailored jfrog-platform Helm values.yaml, reconciled against JFrog's reference architecture sizing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "questionary>=2.0.1",
+    "rich>=13.7.0",
+    "ruamel.yaml>=0.18.6",
+    "PyYAML>=6.0.1",
+    "click>=8.1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+jfvb = "jfvb.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+jfvb = ["data/*.yaml"]
