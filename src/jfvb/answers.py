@@ -90,6 +90,24 @@ class RabbitMQMode(str, Enum):
     EXTERNAL = "external"
 
 
+class NginxTlsMode(str, Enum):
+    """How the bundled nginx terminates HTTPS.
+
+    From chart 11.6.0 the platform chart hard-fails at render time unless one
+    of these is chosen explicitly whenever bundled nginx is enabled (the
+    chart prints the three options itself). Older charts default to a
+    built-in certificate and need no decision -- see
+    `jfvb.chart_compat.FEATURES["nginx_tls_required"]`.
+    """
+
+    # artifactory.nginx.tlsSecretName -- bring your own cert (production).
+    EXISTING_SECRET = "existing_secret"
+    # artifactory.nginx.generateSelfSignedCert -- chart generates one (dev/test).
+    SELF_SIGNED = "self_signed"
+    # artifactory.nginx.https.enabled: false -- HTTP only.
+    DISABLED = "disabled"
+
+
 class KeySource(str, Enum):
     """How the master/join key material is supplied."""
 
@@ -209,6 +227,11 @@ class NetworkingAnswers:
     custom_tls: bool = False
     tls_secret_name: Optional[str] = None
     custom_trusted_certificates: bool = False
+    # Only consulted for bundled nginx on charts that require an explicit
+    # HTTPS decision (>= 11.6.0). None means "not chosen" -- the networking
+    # rule then falls back to a bring-your-own-cert secret, which is the
+    # only production-safe default of the three.
+    nginx_tls_mode: Optional[NginxTlsMode] = None
 
 
 @dataclass

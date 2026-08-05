@@ -101,12 +101,11 @@ def apply(answers: Answers) -> RuleResult:
         )
         if not db.shared_host:
             notes.append(
-                "WARNING: "
+                "External PostgreSQL host left as the placeholder "
+                "'<DB_HOST>' for "
                 + ", ".join(products_using_global_fallback)
-                + " have no per-product host set, so they'd fall back to "
-                "global.database.host -- currently left as the placeholder "
-                "'<DB_HOST>'. Either fill that in, or give each of those "
-                "products its own host so this fallback isn't needed."
+                + " -- replace it (or set per-product hosts) before "
+                "install; see RUNBOOK.md for SQL + kubectl secret steps."
             )
     else:
         notes.append(

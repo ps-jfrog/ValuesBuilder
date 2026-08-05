@@ -12,6 +12,8 @@ from ruamel.yaml.comments import CommentedMap
 
 from jfvb.answers import Answers
 from jfvb.builder import BuildOutput, Contribution
+from jfvb.chart_compat import active_features, describe_version_context
+from jfvb.refdata import get_tier_load
 from jfvb.rules.base import PHASE_ORDER
 from jfvb.runbook import PHASE_TITLES
 
@@ -106,8 +108,19 @@ def render_summary_md(answers: Answers, build: BuildOutput, chart_version: str |
     lines.append("# jfvb build summary")
     lines.append("")
     lines.append(f"- Chart version: `{chart_version or 'latest'}`")
+    lines.append(
+        f"- Version-gate context: `{describe_version_context(answers.chart_version)}`"
+    )
     lines.append(f"- Release/namespace: `{answers.release_name}` / `{answers.namespace}`")
     lines.append(f"- Sizing tier: `{answers.size_tier.value}`")
+    load = get_tier_load(answers.size_tier.value)
+    if load:
+        lines.append(
+            f"- Tier load criteria (cluster-wide Artifactory): "
+            f"≤ {load['peak_rpm']:,} RPM, "
+            f"≤ {load['peak_concurrent_connections']:,} concurrent connections"
+            + (f" — {load['use_case']}" if load.get("use_case") else "")
+        )
     lines.append(f"- Worker nodes reported: {answers.worker_node_count}")
 
     products = answers.products
@@ -135,6 +148,21 @@ def render_summary_md(answers: Answers, build: BuildOutput, chart_version: str |
     lines.append(f"- Air-gapped: {answers.airgapped}")
     lines.append(f"- OpenShift: {answers.openshift}")
     lines.append("")
+
+    features = active_features(answers.chart_version)
+    if features:
+        lines.append("## Active chart-version features")
+        lines.append("")
+        lines.append(
+            "These registered use cases are active for the targeted chart "
+            "version and may change which values.yaml paths are written:"
+        )
+        lines.append("")
+        for feature in features:
+            since = f" since `{feature.since}`" if feature.since else ""
+            until = f", until `{feature.until}`" if feature.until else ""
+            lines.append(f"- `{feature.id}`{since}{until} — {feature.description}")
+        lines.append("")
 
     contributions_by_rule = {c.rule_name: c for c in build.contributions}
 

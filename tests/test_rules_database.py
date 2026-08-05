@@ -91,16 +91,27 @@ def test_no_placeholder_host_in_connectivity_check_when_all_hosts_explicit():
     assert "xray-pg.acme.com" in joined
 
 
-def test_warning_scoped_to_products_actually_missing_a_host():
+def test_placeholder_host_note_when_no_host_set():
+    answers = Answers()
+    answers.database.mode = DatabaseMode.EXTERNAL
+    answers.products.xray = True
+    result = database.apply(answers)
+    assert result.values["global"]["database"]["host"] == "<DB_HOST>"
+    notes = [n for n in result.notes if "<DB_HOST>" in n]
+    assert len(notes) == 1
+    assert not notes[0].startswith("WARNING")
+
+
+def test_partial_hosts_still_notes_missing_products():
     answers = Answers()
     answers.database.mode = DatabaseMode.EXTERNAL
     answers.products.xray = True
     answers.database.per_product_host = {"xray": "xray-pg.acme.com"}
     result = database.apply(answers)
-    warnings = [n for n in result.notes if n.startswith("WARNING")]
-    assert len(warnings) == 1
-    assert "artifactory" in warnings[0]
-    assert "xray" not in warnings[0]
+    notes = [n for n in result.notes if "<DB_HOST>" in n]
+    assert len(notes) == 1
+    assert "artifactory" in notes[0]
+    assert "xray" not in notes[0]
 
 
 def test_sql_generation_uses_product_specific_names():

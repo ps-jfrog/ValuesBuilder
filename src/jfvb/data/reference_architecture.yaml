@@ -1,11 +1,19 @@
 # JFrog self-managed reference architecture sizing guidance, transcribed from
-# https://jfrog.com/reference-architecture/self-managed/deployment/sizing/aws/
-# (AWS Sizing page, "Last updated: June 2026").
+# https://jfrog.com/reference-architecture/self-managed/deployment/sizing/
+# and the AWS sizing page (.../sizing/aws/), "Last updated: June 2026".
 #
 # Values are stored cloud-agnostically (vCPU / memory in GiB / replica counts
 # / DB max_connections). The `aws_instance_type` fields are optional metadata
 # used only to annotate SUMMARY.md -- they are never written into the
 # generated customvalues.yaml.
+#
+# Each tier's `load` block is the official Artifactory sizing-template
+# criteria from the reference architecture:
+#   - peak_rpm: cluster-wide HTTP requests/minute across all Artifactory nodes
+#   - peak_concurrent_connections: cluster-wide active HTTP threads at peak
+# These are selection criteria for picking a t-shirt size; they are NOT
+# written into customvalues.yaml. Postgres `max_connections` below is a
+# separate DB-side setting (not the same as HTTP concurrent connections).
 #
 # jfvb treats these numbers as the source of truth for infrastructure sizing.
 # Where they overlap with the chart's own bundled sizing/platform-*.yaml
@@ -17,6 +25,10 @@
 
 tiers:
   small:
+    load:
+      peak_rpm: 6000
+      peak_concurrent_connections: 100
+      use_case: Development/Testing (not for production)
     artifactory:
       replicas: 1
       nginx_replicas: 1
@@ -33,6 +45,10 @@ tiers:
       postgres: { vcpu: 4, memory_gb: 16, max_connections: 200, aws_instance_type: db.m8g.xlarge }
 
   medium:
+    load:
+      peak_rpm: 50000
+      peak_concurrent_connections: 500
+      use_case: Small production
     artifactory:
       replicas: 2
       nginx_replicas: 2
@@ -49,6 +65,10 @@ tiers:
       postgres: { vcpu: 8, memory_gb: 32, max_connections: 500, aws_instance_type: db.m8g.2xlarge }
 
   large:
+    load:
+      peak_rpm: 100000
+      peak_concurrent_connections: 1200
+      use_case: Medium enterprise
     artifactory:
       replicas: 3
       nginx_replicas: 2
@@ -65,6 +85,10 @@ tiers:
       postgres: { vcpu: 16, memory_gb: 64, max_connections: 600, aws_instance_type: db.m8g.4xlarge }
 
   xlarge:
+    load:
+      peak_rpm: 200000
+      peak_concurrent_connections: 3000
+      use_case: Large enterprise
     artifactory:
       replicas: 4
       nginx_replicas: 2
@@ -81,6 +105,10 @@ tiers:
       postgres: { vcpu: 32, memory_gb: 128, max_connections: 1200, aws_instance_type: db.m8g.8xlarge }
 
   2xlarge:
+    load:
+      peak_rpm: 500000
+      peak_concurrent_connections: 6000
+      use_case: Large enterprise (highest published template)
     artifactory:
       replicas: 6
       nginx_replicas: 3

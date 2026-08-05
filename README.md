@@ -48,18 +48,20 @@ jfvb build -o ./output
 ```
 
 Walks through: chart version, environment (air-gap/OpenShift/registry),
-size tier, worker-node count and node pools, product checklist
+size tier (with cluster-wide RPM / concurrent-connection criteria shown),
+worker-node count and node pools, product checklist
 (Artifactory/Xray/Distribution/Catalog/Workers/JAS/Curation/SBOM, plus an
 advanced sub-list for Bridge/AppTrust/Mission Control/Federation),
-database, filestore, networking/TLS, RabbitMQ mode, and security keys.
-Then writes:
+database (including host URLs -- leave blank for `<DB_HOST>` placeholders),
+filestore (including bucket/IP/account -- blank for placeholders),
+networking/TLS, RabbitMQ mode, and security keys. Then writes:
 
 - `output/customvalues.yaml` -- single merged file, with a `--- set by:
   <rules> ---` comment above every top-level key so you can trace where
   each setting came from
-- `output/SUMMARY.md` -- chosen tier, enabled products, warnings (e.g.
-  "only 2 worker nodes but 3 replicas requested"), and the rationale
-  behind every section
+- `output/SUMMARY.md` -- chosen tier + load criteria, enabled products,
+  warnings (e.g. "only 2 worker nodes but 3 replicas requested"), and the
+  rationale behind every section
 - `output/RUNBOOK.md` -- ordered `kubectl`/`openssl`/`psql` commands
   scoped to exactly what you answered (steps for scenarios you didn't
   select are omitted entirely)
@@ -70,6 +72,77 @@ declaring success (`--no-validate` to skip, `--offline` to skip both the
 chart-baseline sizing fetch and validation entirely, e.g. if `helm`/network
 aren't available).
 
+### `jfvb build --answers` -- non-interactive
+
+```bash
+jfvb example-answers -o answers.yaml   # starter file you can edit
+jfvb build --answers answers.yaml -o ./output --offline
+```
+
+The answers file is a **1:1 map of every wizard field** -- anything the
+interactive interview asks can be set here instead. Omit a field to keep
+its default; unknown fields and invalid enum values are rejected with a
+clear error. Hosts, buckets, and secrets can be left null/omitted so the
+output uses placeholders (same as leaving a wizard prompt blank), or
+filled in when you already know them.
+
+Set `chart_version` in the answers file (or at the wizard prompt) so
+version-gated use cases pick the right values.yaml paths for that chart
+release. Leaving it blank resolves to latest (when helm/network are
+available) and uses the newest path for each feature.
+
+### Version-gated use cases
+
+Some chart keys move between releases. `jfvb` keeps a small registry in
+`src/jfvb/chart_compat.py` (`FEATURES`) and rules branch with
+`feature_active("…", answers.chart_version)`. Today:
+
+| Feature id | Chart versions | Values path |
+| --- | --- | --- |
+| `airgap_extra_system_yaml` | &lt; 11.5.13 | `artifactory.artifactory.extraSystemYaml.jfconnect.airgap.enabled` |
+| `airgap_jfconnect_values` | ≥ 11.5.13 (and latest) | `artifactory.jfconnect.airgap.enabled` |
+| `nginx_tls_required` | ≥ 11.6.0 (and latest) | `artifactory.nginx.tlsSecretName` / `.generateSelfSignedCert` / `.https.enabled` |
+
+`SUMMARY.md` lists which features were active for the targeted version.
+To add another use case: register a `ChartFeature` with `since`/`until`,
+then branch in the relevant rule module.
+
+#### Bundled nginx HTTPS on chart ≥ 11.6.0
+
+From 11.6.0 the chart **refuses to render** when bundled nginx is enabled
+without an explicit HTTPS decision, so a default build against latest
+would fail validation and never write `images.txt`. The wizard now asks,
+and `networking.nginx_tls_mode` covers it non-interactively:
+
+| Mode | Values written | When to use |
+| --- | --- | --- |
+| `existing_secret` (default) | `artifactory.nginx.tlsSecretName` | Production -- bring your own cert; `RUNBOOK.md` gets the `kubectl create secret tls` step |
+| `self_signed` | `artifactory.nginx.generateSelfSignedCert: true` | Dev/test only -- clients reject it unless they trust it |
+| `disabled` | `artifactory.nginx.https.enabled: false` | TLS terminated upstream (mesh / external LB); plaintext otherwise |
+
+Leaving `nginx_tls_mode` null falls back to `existing_secret` (the only
+production-safe option) and records a warning in `SUMMARY.md`. Setting
+`custom_tls: true` already satisfies the requirement. An external ingress
+is unaffected -- nginx is disabled there, so the guard never fires.
+
+### T-shirt size criteria
+
+Tiers map to **cluster-wide** Artifactory load from [JFrog's reference
+architecture](https://jfrog.com/reference-architecture/self-managed/deployment/sizing/):
+
+| Tier | Peak RPM (cluster-wide) | Peak concurrent connections (cluster-wide) | Typical use |
+| --- | --- | --- | --- |
+| small | ≤ 6,000 | ≤ 100 | Dev/test (not production) |
+| medium | ≤ 50,000 | ≤ 500 | Small production |
+| large | ≤ 100,000 | ≤ 1,200 | Medium enterprise |
+| xlarge | ≤ 200,000 | ≤ 3,000 | Large enterprise |
+| 2xlarge | ≤ 500,000 | ≤ 6,000 | Large enterprise |
+
+RPM = total HTTP requests/minute across all Artifactory nodes.
+Concurrent connections = active HTTP threads serving requests across the
+whole cluster at peak. These select the template; they are distinct from
+Postgres `max_connections` (a DB-side setting also sized per tier).
+
 ### `jfvb images` -- air-gapped image list
 
 ```bash
@@ -79,12 +152,30 @@ jfvb images --version 11.5.9 -f output/customvalues.yaml \
 
 Renders the chart with `helm template`, extracts every `image:` reference
 (including init containers and bundled Postgres/RabbitMQ), dedupes, and
-writes the list. With `--target-registry`, also writes
-`mirror-images.sh` (ready-to-run `skopeo copy` commands). Passing your
-generated `customvalues.yaml` via `-f` narrows the list to only the
-products/modules you actually enabled. JAS images are entitlement-gated
-and may be under-represented -- `jfvb` prints a warning to double check
-these against the target Xray version.
+writes the list. The top of `images.txt` also includes copy-pasteable
+instructions to `helm pull` the chart `.tgz` on a connected machine and
+install from that package inside the air-gap. With `--target-registry`,
+also writes `mirror-images.sh` (ready-to-run `skopeo copy` commands).
+Passing your generated `customvalues.yaml` via `-f` narrows the list to
+only the products/modules you actually enabled.
+
+Two chart behaviors are handled specially, both confirmed against chart
+11.5.13:
+
+- **Source registries are preserved.** An air-gapped `customvalues.yaml`
+  sets `global.imageRegistry` to your internal mirror, which would
+  otherwise make every rendered image point at the mirror itself (and
+  make `mirror-images.sh` copy that registry onto itself). Image
+  discovery strips that override so you get the images to *pull*. Use
+  `--keep-registry-override` for the post-mirror names instead.
+- **JAS images are rejoined.** They render as a separate `registry:` +
+  tag-less `image:` pair in a ConfigMap; a naive `image:` grep yields
+  `jfrog/xray-jas-…`, which resolves to Docker Hub. These are recombined
+  and flagged as untagged, since Xray resolves the tag at runtime.
+
+JAS images are also entitlement-gated and may be under-represented --
+`jfvb` prints a warning to double check them against the target Xray
+version.
 
 ## Design
 
@@ -158,9 +249,11 @@ development (see rule module docstrings for what was confirmed and how).
 
 ```
 src/jfvb/
-  answers.py        -- Answers dataclass tree (wizard output)
+  answers.py        -- Answers dataclass tree (wizard / answers-file input)
+  answers_io.py     -- YAML/JSON load + example answers for --answers
+  chart_compat.py   -- chart version compare + FEATURES registry
   wizard.py          -- questionary-based interactive prompts
-  cli.py             -- `jfvb build` / `jfvb images` entry points
+  cli.py             -- `jfvb build` / `jfvb example-answers` / `jfvb images`
   builder.py         -- orchestrates sizing + rules -> merged values
   sizing.py          -- reference-architecture <-> chart sizing reconciliation
   refdata.py         -- loader for data/reference_architecture.yaml

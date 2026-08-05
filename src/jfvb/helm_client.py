@@ -159,9 +159,25 @@ def _explain_failure(display: str, returncode: int, stderr: str) -> str:
         )
     elif any(
         term in lowered
-        for term in ("dial tcp", "no such host", "connection refused", "timeout", "tls")
+        for term in (
+            "dial tcp",
+            "no such host",
+            "connection refused",
+            "i/o timeout",
+            "tls handshake",
+            "x509",
+            "certificate signed by unknown authority",
+        )
     ):
         hint = " (hint: looks network-related -- check connectivity/VPN/proxy to charts.jfrog.io)"
+    elif "execution error at" in lowered or "template:" in lowered:
+        # A chart-side `fail`/template error -- the chart itself is telling
+        # you what's wrong (e.g. jfrog-platform 11.6.0 requires nginx TLS to
+        # be configured). Don't mislabel that as a connectivity problem.
+        hint = (
+            " (hint: the chart rejected these values -- read the chart's own "
+            "message above; this is a values problem, not a network one)"
+        )
     return f"'{display}' failed (exit {returncode}):\n{stderr}{hint}"
 
 

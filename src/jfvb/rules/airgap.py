@@ -1,53 +1,41 @@
 """Air-gapped environment configuration.
 
 Confirmed from docs.jfrog.com/installation/docs/configure-jfrog-platform-in-an-air-gapped-environment
-and docs.jfrog.com/installation/docs/override-the-default-system-yaml-file-in-helm-installation:
+and docs.jfrog.com/installation/docs/override-the-default-system-yaml-file-in-helm-installation.
 
-- The runtime setting is `jfconnect.airgap.enabled: true` in system.yaml.
-- It is not a first-class key in the Artifactory chart's values.yaml
-  (only `jfconnect.enabled`/`image`/`resources`/etc. are), so for Helm it
-  must be injected via `extraSystemYaml` -- the documented mechanism for
-  system.yaml keys not otherwise exposed.
-- CONFIRMED via `helm template` against chart 11.5.9 (this is exactly what
-  the `--validate` step exists to catch): on the jfrog-platform chart the
-  correct path is the DOUBLE-nested
-  `artifactory.artifactory.extraSystemYaml.jfconnect.airgap.enabled`, not
-  the single-nested `artifactory.extraSystemYaml...`. The standalone
-  Artifactory chart's own template helper reads
-  `.Values.artifactory.extraSystemYaml` -- and since that standalone chart
-  is itself mounted under the platform chart's `artifactory:` key, the
-  full path gains an extra `artifactory.` level of nesting. A rendered
-  system.yaml with only single-nesting shows `jfconnect: {enabled: true}`
-  and silently drops `airgap` -- no Helm error, just missing config.
-- Registry mirroring for air-gapped clusters uses `global.imageRegistry`
-  and `global.imagePullSecrets` (confirmed via JFrog's "Using a Custom
-  Image Registry" doc).
+The values.yaml *path* for enabling air-gap is version-gated (see
+`jfvb.chart_compat.FEATURES`):
+
+- Charts **before 11.5.13**: `jfconnect.airgap` is not a first-class key on
+  the platform chart. Inject via the Artifactory subchart's
+  `extraSystemYaml`. CONFIRMED via `helm template` against chart 11.5.9:
+  the correct path is the DOUBLE-nested
+  `artifactory.artifactory.extraSystemYaml.jfconnect.airgap.enabled`. The
+  single-nested `artifactory.extraSystemYaml...` silently drops `airgap`
+  (no Helm error).
+- Charts **11.5.13+** (and "latest"): the platform chart exposes
+  `artifactory.jfconnect.airgap.enabled` directly in values.
+
+Shared across versions:
+
+- Registry mirroring uses `global.imageRegistry` / `global.imagePullSecrets`.
 - Entitlements: JFConnect normally fetches these live from MyJFrog. In
   air-gapped mode there is a documented OFFLINE procedure (see "Update
-  Entitlements on an Air-gapped JFrog Platform" on the page above) that
-  does NOT require the platform itself to ever reach the internet --
-  instead an admin round-trips a request/response token through any
-  separate machine that does have internet access:
-    1. On the air-gapped JPD: call jfconnect's `offline/start_register`
-       to get an `offline_request_token`.
-    2. On a connected machine: POST that token to JFrog's
-       `jes.jfrog.io/api/v1/offline_register` to get back an
-       `offline_response_token` + `entitlements.json`.
-    3. Back on the air-gapped JPD: call `offline/register` with both to
-       activate entitlements.
-  This is required at least once for ANY air-gapped install (not just
-  JAS/Curation/Mission Control -- every product's entitlement and
-  expiry date flows through JFConnect), and again within the 14-day
-  window before each contract renewal, so previous versions of this note
-  claiming JAS/Curation/Mission Control "will not activate" without a
-  live/allow-listed path to MyJFrog were simply wrong -- there is no
-  live connectivity requirement at all, only this periodic offline
-  hand-off.
+  Entitlements on an Air-gapped JFrog Platform") that does NOT require the
+  platform itself to ever reach the internet -- an admin round-trips a
+  request/response token through any separate machine that does have
+  internet access. Required at least once for ANY air-gapped install, and
+  again within the 14-day window before each contract renewal.
 """
 
 from __future__ import annotations
 
 from jfvb.answers import Answers
+from jfvb.chart_compat import (
+    describe_version_context,
+    feature_active,
+    get_feature,
+)
 from jfvb.rules.base import RuleResult, SetupStep
 
 name = "airgap"
@@ -57,8 +45,27 @@ def applies(answers: Answers) -> bool:
     return answers.airgapped
 
 
-def apply(answers: Answers) -> RuleResult:
-    values: dict = {
+def _airgap_values_and_note(answers: Answers) -> tuple[dict, str]:
+    """Pick the version-appropriate values patch + rationale note."""
+
+    version = answers.chart_version
+    if feature_active("airgap_jfconnect_values", version):
+        feature = get_feature("airgap_jfconnect_values")
+        values = {
+            "artifactory": {
+                "jfconnect": {"airgap": {"enabled": True}},
+            }
+        }
+        note = (
+            f"Air-gapped mode (chart {describe_version_context(version)}): "
+            "set via artifactory.jfconnect.airgap.enabled: true "
+            f"({feature.notes} Feature id: `{feature.id}`.)"
+        )
+        return values, note
+
+    # Pre-11.5.13 (or any version where the first-class key is not active).
+    feature = get_feature("airgap_extra_system_yaml")
+    values = {
         "artifactory": {
             "artifactory": {
                 "extraSystemYaml": {
@@ -67,16 +74,20 @@ def apply(answers: Answers) -> RuleResult:
             }
         },
     }
-    notes = [
-        "Air-gapped mode: set via "
-        "artifactory.artifactory.extraSystemYaml.jfconnect.airgap.enabled: "
-        "true (confirmed via live `helm template` against chart 11.5.9 -- "
-        "the single-nested artifactory.extraSystemYaml path silently drops "
-        "the airgap key with no Helm error). This is injected into "
-        "system.yaml, not a first-class values.yaml key -- run "
-        "`jfvb build --validate` (default on) to re-confirm this for "
-        "whatever chart version you're targeting.",
-    ]
+    note = (
+        f"Air-gapped mode (chart {describe_version_context(version)}): "
+        "set via artifactory.artifactory.extraSystemYaml.jfconnect.airgap."
+        "enabled: true "
+        f"({feature.notes} Feature id: `{feature.id}`.) "
+        "Run `jfvb build --validate` to re-confirm nesting for the "
+        "chart version you're targeting."
+    )
+    return values, note
+
+
+def apply(answers: Answers) -> RuleResult:
+    values, path_note = _airgap_values_and_note(answers)
+    notes = [path_note]
 
     if answers.custom_image_registry:
         values["global"] = {"imageRegistry": answers.custom_image_registry}
@@ -112,10 +123,17 @@ def apply(answers: Answers) -> RuleResult:
     steps = [
         SetupStep(
             phase="registry",
-            title="Prepare the internal image registry and pull secret",
+            title="Download the chart package and prepare the internal image registry",
             commands=(
                 [
-                    "# `jfvb build` already generated images.txt (and mirror-images.sh, if a",
+                    "# 1. On a machine WITH internet: download the chart package and",
+                    "#    transfer jfrog-platform-<VERSION>.tgz into the air-gap.",
+                    "#    (Full copy-pasteable steps are also at the top of images.txt.)",
+                    "helm repo add jfrog https://charts.jfrog.io",
+                    "helm repo update jfrog",
+                    "helm pull jfrog/jfrog-platform --version <CHART_VERSION>",
+                    "",
+                    "# 2. `jfvb build` already generated images.txt (and mirror-images.sh, if a",
                     "# target registry was set) next to customvalues.yaml when it had helm/network",
                     "# access -- check the output directory before re-running this manually:",
                     "jfvb images --version <CHART_VERSION> --target-registry "

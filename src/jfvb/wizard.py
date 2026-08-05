@@ -17,9 +17,12 @@ from jfvb.answers import (
     FilestoreMode,
     FilestoreType,
     KeySource,
+    NginxTlsMode,
     RabbitMQMode,
     SizeTier,
 )
+from jfvb.chart_compat import feature_active
+from jfvb.refdata import format_tier_choice_label
 
 console = Console()
 
@@ -101,7 +104,9 @@ def run_wizard() -> Answers:
     )
 
     _section(1, "Basics")
-    version_input = _ask_text("Target chart version (leave blank for latest):")
+    version_input = _ask_text(
+        "Target chart version (leave blank for latest; pins version-gated values paths):"
+    )
     answers.chart_version = version_input or None
     answers.release_name = _ask_text("Helm release name:", answers.release_name)
     answers.namespace = _ask_text("Kubernetes namespace:", answers.namespace)
@@ -130,9 +135,23 @@ def run_wizard() -> Answers:
     answers.openshift = _ask_confirm("Is this targeting OpenShift?", default=False)
 
     _section(3, "Sizing", "Based on JFrog's reference architecture.")
+    console.print(
+        "[dim]T-shirt sizes map to cluster-wide Artifactory load: "
+        "peak Requests Per Minute (RPM) and peak concurrent HTTP "
+        "connections across the whole cluster (not per node).[/dim]"
+    )
     tier_choice = _ask_select(
         "Deployment size tier:",
-        choices=["small", "medium", "large", "xlarge", "2xlarge", "custom"],
+        choices=[
+            questionary.Choice(format_tier_choice_label("small"), value="small"),
+            questionary.Choice(format_tier_choice_label("medium"), value="medium"),
+            questionary.Choice(format_tier_choice_label("large"), value="large"),
+            questionary.Choice(format_tier_choice_label("xlarge"), value="xlarge"),
+            questionary.Choice(format_tier_choice_label("2xlarge"), value="2xlarge"),
+            questionary.Choice(
+                "custom  (set replica counts yourself)", value="custom"
+            ),
+        ],
         default="small",
     )
     answers.size_tier = SizeTier(tier_choice)
@@ -192,7 +211,12 @@ def run_wizard() -> Answers:
         p.mission_control = "mission_control" in advanced
         p.federation = "federation" in advanced
 
-    _section(5, "Database")
+    _section(
+        5,
+        "Database",
+        "Leave a host blank to emit a <DB_HOST> placeholder (passwords always "
+        "go in a Secret via RUNBOOK.md, never into customvalues.yaml).",
+    )
     db_choice = _ask_select(
         "PostgreSQL:",
         choices=[
@@ -205,10 +229,16 @@ def run_wizard() -> Answers:
         if _ask_confirm(
             "Use one shared external Postgres host for every product?", default=True
         ):
-            answers.database.shared_host = _ask_text("External Postgres host:") or None
+            answers.database.shared_host = (
+                _ask_text("External Postgres host (blank for <DB_HOST>):") or None
+            )
+            answers.database.per_product_host = {}
         else:
+            answers.database.shared_host = None
             for product in answers.products.enabled_db_products():
-                host = _ask_text(f"Postgres host for '{product}':")
+                host = _ask_text(
+                    f"Postgres host for '{product}' (blank for <DB_HOST>):"
+                )
                 if host:
                     answers.database.per_product_host[product] = host
         answers.database.port = _ask_int("Postgres port:", 5432)
@@ -216,7 +246,12 @@ def run_wizard() -> Answers:
             "SSL mode:", choices=["require", "disable", "verify-full"], default="require"
         )
 
-    _section(6, "Filestore", "Artifactory only -- other products don't expose this.")
+    _section(
+        6,
+        "Filestore",
+        "Artifactory only -- other products don't expose this. "
+        "Leave bucket/IP/account blank to emit placeholders.",
+    )
     fs_choice = _ask_select(
         "Filestore backend:",
         choices=[
@@ -238,7 +273,7 @@ def run_wizard() -> Answers:
             default=False,
         )
     elif fs.type == FilestoreType.NFS:
-        fs.nfs_ip = _ask_text("NFS server IP:") or None
+        fs.nfs_ip = _ask_text("NFS server IP (blank for <NFS_SERVER_IP>):") or None
         fs.nfs_capacity = _ask_text("NFS capacity:", fs.nfs_capacity)
     elif fs.type in (FilestoreType.S3, FilestoreType.GCS, FilestoreType.AZURE_BLOB):
         cloud_name = {
@@ -276,17 +311,20 @@ def run_wizard() -> Answers:
         fs.mode = FilestoreMode(mode_choice)
 
         if fs.type == FilestoreType.S3:
-            fs.s3_bucket = _ask_text("S3 bucket name:") or None
+            fs.s3_bucket = _ask_text("S3 bucket name (blank for <S3_BUCKET_NAME>):") or None
             fs.s3_compatible_non_aws = _ask_confirm(
                 "Is this an S3-compatible provider that ISN'T AWS (MinIO, "
                 "Ceph, Wasabi, Dell ECS, NetApp StorageGRID, etc.)?",
                 default=False,
             )
             if fs.s3_compatible_non_aws:
-                fs.s3_endpoint = _ask_text(
-                    "S3-compatible endpoint (required, e.g. "
-                    "https://minio.example.com or an internal IP/hostname):"
-                ) or None
+                fs.s3_endpoint = (
+                    _ask_text(
+                        "S3-compatible endpoint (blank for <S3_ENDPOINT_URL>, "
+                        "e.g. https://minio.example.com):"
+                    )
+                    or None
+                )
                 fs.s3_use_http = _ask_confirm(
                     "Does the endpoint use plain HTTP (no TLS)?", default=False
                 )
@@ -295,24 +333,33 @@ def run_wizard() -> Answers:
                     "e.g. 9000 for MinIO):"
                 )
                 fs.s3_port = int(port_str) if port_str.strip().isdigit() else None
-                fs.s3_region = _ask_text(
-                    "Region (many non-AWS providers ignore the value but "
-                    "still require *something* for request signing -- "
-                    "'us-east-1' is a safe default if unsure):",
-                    "us-east-1",
-                ) or None
+                fs.s3_region = (
+                    _ask_text(
+                        "Region (many non-AWS providers ignore the value but "
+                        "still require *something* for request signing -- "
+                        "'us-east-1' is a safe default if unsure):",
+                        "us-east-1",
+                    )
+                    or None
+                )
                 fs.s3_use_iam_role = False  # no EC2/EKS instance metadata outside AWS
             else:
-                fs.s3_region = _ask_text("AWS region:") or None
+                fs.s3_region = _ask_text("AWS region (blank for <AWS_REGION>):") or None
                 fs.s3_use_iam_role = _ask_confirm(
                     "Use IAM role-based access (recommended) instead of static keys?",
                     default=True,
                 )
         elif fs.type == FilestoreType.GCS:
-            fs.gcs_bucket = _ask_text("GCS bucket name:") or None
+            fs.gcs_bucket = _ask_text("GCS bucket name (blank for <GCS_BUCKET_NAME>):") or None
         elif fs.type == FilestoreType.AZURE_BLOB:
-            fs.azure_account_name = _ask_text("Azure storage account name:") or None
-            fs.azure_container = _ask_text("Azure container name:") or None
+            fs.azure_account_name = (
+                _ask_text("Azure storage account name (blank for <AZURE_ACCOUNT_NAME>):")
+                or None
+            )
+            fs.azure_container = (
+                _ask_text("Azure container name (blank for <AZURE_CONTAINER_NAME>):")
+                or None
+            )
             if _ask_confirm(
                 "Does this account use a non-default endpoint (Azure "
                 "Government/China cloud, Azure Stack, or another "
@@ -321,11 +368,13 @@ def run_wizard() -> Answers:
             ):
                 fs.azure_endpoint = (
                     _ask_text(
-                        "Azure Blob endpoint (e.g. "
+                        "Azure Blob endpoint (blank for <AZURE_BLOB_ENDPOINT>, e.g. "
                         "https://<account>.blob.core.usgovcloudapi.net):"
                     )
-                    or None
+                    or "<AZURE_BLOB_ENDPOINT>"
                 )
+            else:
+                fs.azure_endpoint = None
 
         if fs.type in (FilestoreType.S3, FilestoreType.GCS):
             fs.direct_cloud_download = _ask_confirm(
@@ -351,6 +400,7 @@ def run_wizard() -> Answers:
         "Use an external ingress controller instead of bundled nginx?",
         default=False,
     )
+    answers.networking.use_bundled_nginx = not answers.networking.external_ingress
     if answers.networking.external_ingress:
         answers.networking.ingress_host = _ask_text("Ingress hostname:") or None
         answers.networking.ingress_class_name = (
@@ -367,6 +417,37 @@ def run_wizard() -> Answers:
         answers.networking.tls_secret_name = _ask_text(
             "TLS secret name:", f"{answers.release_name}-tls"
         )
+    elif not answers.networking.external_ingress and feature_active(
+        "nginx_tls_required", answers.chart_version
+    ):
+        # Chart >= 11.6.0 refuses to render bundled nginx without this.
+        console.print(
+            "[dim]This chart version requires an explicit HTTPS decision for "
+            "the bundled nginx -- without one it fails to render.[/dim]"
+        )
+        tls_mode = _ask_select(
+            "Bundled nginx HTTPS:",
+            choices=[
+                questionary.Choice(
+                    "Use my own certificate from a Kubernetes secret (production)",
+                    value="existing_secret",
+                ),
+                questionary.Choice(
+                    "Let the chart generate a self-signed certificate (dev/test only)",
+                    value="self_signed",
+                ),
+                questionary.Choice(
+                    "Disable HTTPS -- HTTP only (TLS terminated upstream)",
+                    value="disabled",
+                ),
+            ],
+            default="existing_secret",
+        )
+        answers.networking.nginx_tls_mode = NginxTlsMode(tls_mode)
+        if answers.networking.nginx_tls_mode == NginxTlsMode.EXISTING_SECRET:
+            answers.networking.tls_secret_name = _ask_text(
+                "TLS secret name:", f"{answers.release_name}-tls"
+            )
     answers.networking.custom_trusted_certificates = _ask_confirm(
         "Add custom trusted CA certificates (internal CA for LDAP/SSO/proxy)?",
         default=False,

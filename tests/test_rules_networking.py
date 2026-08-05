@@ -1,9 +1,14 @@
-from jfvb.answers import Answers
+from jfvb.answers import Answers, NginxTlsMode
 from jfvb.rules import networking
+
+# Charts before 11.6.0 render bundled nginx without an HTTPS decision, so
+# tests about "no patch" have to pin a version -- an unpinned chart_version
+# means latest, which does require one.
+PRE_TLS_GATE = "11.5.9"
 
 
 def test_bundled_nginx_default_produces_no_patch():
-    answers = Answers()
+    answers = Answers(chart_version=PRE_TLS_GATE)
     result = networking.apply(answers)
     assert result.values == {}
     assert any("bundled nginx" in n.lower() for n in result.notes)
@@ -79,8 +84,67 @@ def test_custom_trusted_certificates_sets_global_block_and_step():
 
 
 def test_no_networking_options_selected_only_default_note():
-    answers = Answers()
+    answers = Answers(chart_version=PRE_TLS_GATE)
     result = networking.apply(answers)
     assert result.values == {}
     assert result.steps == []
     assert len(result.notes) == 1
+
+
+def test_nginx_tls_not_required_before_11_6_0():
+    answers = Answers(chart_version="11.5.13")
+    result = networking.apply(answers)
+    assert result.values == {}
+
+
+def test_nginx_tls_required_defaults_to_own_certificate_with_warning():
+    answers = Answers(chart_version="11.6.0")
+    result = networking.apply(answers)
+    nginx = result.values["artifactory"]["nginx"]
+    assert nginx["tlsSecretName"] == f"{answers.release_name}-tls"
+    assert any(n.startswith("WARNING") and "explicit HTTPS decision" in n for n in result.notes)
+    assert any("create secret tls" in " ".join(s.commands) for s in result.steps)
+
+
+def test_nginx_tls_existing_secret_mode_is_not_warned_about():
+    answers = Answers(chart_version="11.6.0")
+    answers.networking.nginx_tls_mode = NginxTlsMode.EXISTING_SECRET
+    answers.networking.tls_secret_name = "acme-wildcard-tls"
+    result = networking.apply(answers)
+    assert result.values["artifactory"]["nginx"]["tlsSecretName"] == "acme-wildcard-tls"
+    assert not any(n.startswith("WARNING") for n in result.notes)
+
+
+def test_nginx_tls_self_signed_mode_sets_flag_and_warns():
+    answers = Answers(chart_version="11.6.0")
+    answers.networking.nginx_tls_mode = NginxTlsMode.SELF_SIGNED
+    result = networking.apply(answers)
+    assert result.values["artifactory"]["nginx"]["generateSelfSignedCert"] is True
+    assert result.steps == []
+    assert any(n.startswith("WARNING") and "self-signed" in n for n in result.notes)
+
+
+def test_nginx_tls_disabled_mode_turns_https_off_and_warns():
+    answers = Answers(chart_version="11.6.0")
+    answers.networking.nginx_tls_mode = NginxTlsMode.DISABLED
+    result = networking.apply(answers)
+    assert result.values["artifactory"]["nginx"]["https"] == {"enabled": False}
+    assert any(n.startswith("WARNING") and "plaintext" in n for n in result.notes)
+
+
+def test_custom_tls_already_satisfies_the_11_6_0_requirement():
+    answers = Answers(chart_version="11.6.0")
+    answers.networking.custom_tls = True
+    result = networking.apply(answers)
+    nginx = result.values["artifactory"]["nginx"]
+    assert nginx["tlsSecretName"] == f"{answers.release_name}-tls"
+    assert "generateSelfSignedCert" not in nginx
+    assert len([s for s in result.steps if s.phase == "tls"]) == 1
+
+
+def test_external_ingress_needs_no_nginx_tls_decision_on_11_6_0():
+    answers = Answers(chart_version="11.6.0")
+    answers.networking.external_ingress = True
+    result = networking.apply(answers)
+    nginx = result.values["artifactory"]["nginx"]
+    assert nginx == {"enabled": False}

@@ -44,8 +44,26 @@ def test_render_summary_lists_warnings_separately():
     assert "## Warnings" in summary
 
 
+def test_render_summary_includes_tier_load_criteria():
+    answers = Answers(size_tier=SizeTier.MEDIUM)
+    out = run_build(answers, chart_dir=None)
+    summary = render_summary_md(answers, out, "11.5.9")
+    assert "Tier load criteria (cluster-wide Artifactory)" in summary
+    assert "50,000 RPM" in summary
+    assert "500 concurrent connections" in summary
+
+
+def test_render_summary_lists_active_version_features():
+    answers = Answers(size_tier=SizeTier.SMALL, chart_version="11.5.9", airgapped=True)
+    out = run_build(answers, chart_dir=None)
+    summary = render_summary_md(answers, out, "11.5.9")
+    assert "## Active chart-version features" in summary
+    assert "airgap_extra_system_yaml" in summary
+    assert "airgap_jfconnect_values" not in summary
+
+
 def test_render_runbook_omits_irrelevant_phases():
-    answers = Answers(size_tier=SizeTier.SMALL)
+    answers = Answers(size_tier=SizeTier.SMALL, chart_version="11.5.9")
     answers.database.mode = DatabaseMode.BUNDLED  # no DB runbook steps expected
     answers.networking.custom_tls = False
     answers.networking.custom_trusted_certificates = False
