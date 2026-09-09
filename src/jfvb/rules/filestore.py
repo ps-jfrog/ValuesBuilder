@@ -687,12 +687,18 @@ def apply(answers: Answers) -> RuleResult:
             "-- it's not available on the OSS/Community Edition tier."
         )
         if fs.azure_endpoint:
+            endpoint_desc = (
+                "was left as the '<AZURE_BLOB_ENDPOINT>' placeholder -- fill "
+                "in the actual value before installing"
+                if fs.azure_endpoint == "<AZURE_BLOB_ENDPOINT>"
+                else f"was set to '{fs.azure_endpoint}'"
+            )
             notes.append(
-                f"WARNING: a custom endpoint ('{fs.azure_endpoint}') was "
-                "set instead of the default blob.core.windows.net -- "
-                "custom Azure endpoints require an Enterprise or "
-                "Enterprise+ subscription. Confirm your license before "
-                "installing, or leave endpoint unset to use the default."
+                f"WARNING: a custom endpoint {endpoint_desc} instead of the "
+                "default blob.core.windows.net -- custom Azure endpoints "
+                "require an Enterprise or Enterprise+ subscription. Confirm "
+                "your license before installing, or leave endpoint unset to "
+                "use the default."
             )
         notes.extend(_migration_note(answers, "Azure Blob Storage"))
         notes.append(

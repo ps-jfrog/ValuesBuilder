@@ -216,7 +216,6 @@ class FilestoreAnswers:
 
 @dataclass
 class NetworkingAnswers:
-    use_bundled_nginx: bool = True
     external_ingress: bool = False
     ingress_host: Optional[str] = None
     # Needed whenever there's no cluster-default IngressClass (or more than

@@ -400,7 +400,6 @@ def run_wizard() -> Answers:
         "Use an external ingress controller instead of bundled nginx?",
         default=False,
     )
-    answers.networking.use_bundled_nginx = not answers.networking.external_ingress
     if answers.networking.external_ingress:
         answers.networking.ingress_host = _ask_text("Ingress hostname:") or None
         answers.networking.ingress_class_name = (

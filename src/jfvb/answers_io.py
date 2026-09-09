@@ -38,9 +38,17 @@ def _unwrap_optional(annotation: Any) -> Any:
     return annotation
 
 
+def _is_optional(annotation: Any) -> bool:
+    if annotation is type(None):
+        return True
+    return type(None) in get_args(annotation)
+
+
 def _coerce(value: Any, annotation: Any, path: str) -> Any:
     if value is None:
-        return None
+        if _is_optional(annotation):
+            return None
+        raise AnswersLoadError(f"{path}: null is not allowed here; expected a value")
 
     annotation = _unwrap_optional(annotation)
     origin = get_origin(annotation)
@@ -258,8 +266,7 @@ rabbitmq_mode: bundled_classic   # bundled_classic | bundled_quorum | external
 
 # --- Networking / TLS ---
 networking:
-  use_bundled_nginx: true    # false when using external_ingress
-  external_ingress: false
+  external_ingress: false   # bundled nginx is used whenever this is false
   ingress_host: null
   ingress_class_name: null   # e.g. nginx, alb, traefik
   custom_tls: false
