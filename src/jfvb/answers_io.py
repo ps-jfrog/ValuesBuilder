@@ -16,6 +16,7 @@ from typing import Any, Type, TypeVar, get_args, get_origin, get_type_hints
 import yaml
 
 from jfvb.answers import Answers
+from jfvb.chart_compat import ChartVersionError, parse_chart_version
 
 T = TypeVar("T")
 
@@ -111,7 +112,14 @@ def _dataclass_from_dict(cls: Type[T], data: dict[str, Any], path: str) -> T:
 def answers_from_dict(data: dict[str, Any]) -> Answers:
     if not isinstance(data, dict):
         raise AnswersLoadError("answers root must be a mapping")
-    return _dataclass_from_dict(Answers, data, "answers")
+    answers = _dataclass_from_dict(Answers, data, "answers")
+    version = answers.chart_version
+    if version is not None and str(version).strip().lower() != "latest":
+        try:
+            parse_chart_version(version)
+        except ChartVersionError as exc:
+            raise AnswersLoadError(f"answers.chart_version: {exc}") from exc
+    return answers
 
 
 def _to_plain(value: Any) -> Any:

@@ -45,9 +45,13 @@ from jfvb.helm_client import (
 )
 
 IMAGE_RE = re.compile(r'image:\s*"?([^"\s]+)"?')
-# `registry:` immediately followed by `image:` (the JAS ConfigMap shape).
+# `registry:` immediately followed by a sibling `image:` at the same
+# indentation (the JAS ConfigMap shape) -- the indentation backreference
+# keeps this from pairing an unrelated `registry:`/`image:` that merely
+# happen to be adjacent at different nesting levels.
 REGISTRY_IMAGE_RE = re.compile(
-    r'registry:\s*"?([^"\s]+)"?\s*\n\s*image:\s*"?([^"\s]+)"?'
+    r'^([ \t]*)registry:\s*"?([^"\s]+)"?\s*\n\1image:\s*"?([^"\s]+)"?',
+    re.MULTILINE,
 )
 
 # Keys jfvb's airgap rule injects that rewrite images to the mirror target.
@@ -104,7 +108,7 @@ def extract_images(rendered_manifests: str) -> list[str]:
     text = _uncommented(rendered_manifests)
 
     paired: dict[str, str] = {}
-    for registry, image in REGISTRY_IMAGE_RE.findall(text):
+    for _indent, registry, image in REGISTRY_IMAGE_RE.findall(text):
         paired[image] = f"{registry.rstrip('/')}/{image}"
 
     found: set[str] = set()
