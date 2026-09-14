@@ -27,6 +27,29 @@ from jfvb.refdata import chart_sizing_profile_path, get_tier
 from jfvb.rules.base import RuleResult
 
 
+# Artifactory microservices whose chart default the chart itself now
+# documents as "Aligned with artifactory.replicaCount. Update it
+# separately to scale independently" (confirmed in jfrog-platform 11.6.3's
+# artifactory subchart values.yaml). The chart does not keep them in sync
+# automatically -- every one of these must be set explicitly alongside
+# artifactory.artifactory.replicaCount, or they silently stay under-scaled
+# relative to the Artifactory pool they front/support.
+_ALIGNED_MICROSERVICES = (
+    "frontend",
+    "rtfs",
+    "jfbus",
+    "jfmelt",
+    "apptrust",
+    "unifiedpolicy",
+    "evaluation",
+    "platformfederation",
+)
+
+
+def _aligned_microservice_replicas(art_replicas: int) -> dict[str, Any]:
+    return {name: {"replicaCount": art_replicas} for name in _ALIGNED_MICROSERVICES}
+
+
 def _get_path(node: dict[str, Any], path: list[str]) -> Any:
     for key in path:
         if not isinstance(node, dict) or key not in node:
@@ -108,6 +131,7 @@ def _reference_overrides(
     patch: dict[str, Any] = {
         "artifactory": {
             "artifactory": {"replicaCount": art["replicas"]},
+            **_aligned_microservice_replicas(art["replicas"]),
             "postgresql": {
                 "primary": {
                     "resources": {
@@ -172,7 +196,10 @@ def _custom_sizing(answers: Answers) -> RuleResult:
     xray_replicas = int(custom.get("xray_replicas", 1))
 
     patch: dict[str, Any] = {
-        "artifactory": {"artifactory": {"replicaCount": art_replicas}},
+        "artifactory": {
+            "artifactory": {"replicaCount": art_replicas},
+            **_aligned_microservice_replicas(art_replicas),
+        },
     }
     if answers.products.xray:
         patch["xray"] = {
@@ -182,11 +209,12 @@ def _custom_sizing(answers: Answers) -> RuleResult:
 
     notes = [
         "Custom sizing tier: no reference-architecture table applies. Only "
-        f"replica counts were set (artifactory={art_replicas}, "
-        f"xray={xray_replicas}) -- resource requests/limits, HPA bounds, "
-        "and DB sizing are left at chart defaults. Review manually or "
-        "provide vCPU/memory numbers explicitly before going to "
-        "production.",
+        f"replica counts were set (artifactory={art_replicas}, including "
+        "its aligned frontend/rtfs/jfbus/jfmelt/apptrust/unifiedpolicy/"
+        f"evaluation/platformfederation microservices; xray={xray_replicas}"
+        ") -- resource requests/limits, HPA bounds, and DB sizing are left "
+        "at chart defaults. Review manually or provide vCPU/memory numbers "
+        "explicitly before going to production.",
     ]
     return RuleResult(values=patch, notes=notes)
 
