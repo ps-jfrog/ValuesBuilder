@@ -143,15 +143,9 @@ def apply(answers: Answers) -> RuleResult:
     # --- Advanced / less common modules ---
     if p.bridge:
         values["bridge"] = {"enabled": True}
-        # Confirmed against a live `helm template` of jfrog-platform
-        # 11.5.13 through 11.6.3: enabling bridge alongside worker and/or
-        # catalog fails to render ("nil pointer evaluating interface
-        # {}.initContainers" / "...router" in bridge/templates/_helpers.tpl)
-        # because Helm's per-subchart global-values merge can leave
-        # global.digests unset for that combination, even though bridge's
-        # own values.yaml defaults it to {}. Setting it explicitly here
-        # sidesteps the merge order entirely; it's a no-op when the
-        # combination that triggers it isn't present.
+        # Defensive workaround for a bridge+worker/catalog render failure --
+        # see the WARNING note below for what it fixes and why. A no-op
+        # when that combination isn't present.
         values.setdefault("global", {})["digests"] = {}
         if p.workers or p.catalog:
             notes.append(

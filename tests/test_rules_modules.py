@@ -79,3 +79,20 @@ def test_apptrust_sets_both_required_keys():
     result = modules.apply(answers)
     assert result.values["artifactory"]["apptrust"]["enabled"] is True
     assert result.values["artifactory"]["unifiedpolicy"]["enabled"] is True
+
+
+def test_bridge_alone_sets_digests_default_without_warning():
+    answers = Answers()
+    answers.products.bridge = True
+    result = modules.apply(answers)
+    assert result.values["global"]["digests"] == {}
+    assert not any("WARNING" in note and "digests" in note for note in result.notes)
+
+
+def test_bridge_with_worker_or_catalog_warns_about_render_failure():
+    answers = Answers()
+    answers.products.bridge = True
+    answers.products.workers = True
+    result = modules.apply(answers)
+    assert result.values["global"]["digests"] == {}
+    assert any("WARNING" in note and "digests" in note for note in result.notes)

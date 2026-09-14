@@ -123,3 +123,44 @@ def test_custom_tier_uses_manual_replica_counts_only():
     assert result.values["artifactory"]["artifactory"]["replicaCount"] == 5
     assert result.values["xray"]["replicaCount"] == 2
     assert "postgresql" not in result.values.get("artifactory", {})
+
+
+def test_custom_tier_aligns_always_on_microservices_but_not_optional_ones():
+    """frontend/jfbus/jfmelt ship enabled by chart default regardless of
+    product selection, so they must always track artifactory's replica
+    count. apptrust/unifiedpolicy/rtfs/platformfederation/evaluation are
+    disabled by chart default and only relevant when their matching
+    product was selected -- setting their replicaCount otherwise would be
+    unused clutter (and, for platformfederation, writes to a key path
+    modules.py itself flags as unverified across chart versions)."""
+
+    answers = Answers(size_tier=SizeTier.CUSTOM)
+    answers.custom_sizing = {"artifactory_replicas": 5}
+    art = build_sizing(answers, chart_dir=None).values["artifactory"]
+
+    for name in ("frontend", "jfbus", "jfmelt"):
+        assert art[name]["replicaCount"] == 5
+    for name in ("apptrust", "unifiedpolicy", "rtfs", "platformfederation", "evaluation"):
+        assert name not in art
+
+
+def test_custom_tier_aligns_apptrust_and_federation_microservices_when_selected():
+    answers = Answers(size_tier=SizeTier.CUSTOM)
+    answers.custom_sizing = {"artifactory_replicas": 5}
+    answers.products.apptrust = True
+    answers.products.federation = True
+    art = build_sizing(answers, chart_dir=None).values["artifactory"]
+
+    for name in ("apptrust", "unifiedpolicy", "rtfs", "platformfederation"):
+        assert art[name]["replicaCount"] == 5
+    assert "evaluation" not in art
+
+
+def test_medium_tier_aligns_always_on_microservices_but_not_optional_ones():
+    answers = Answers(size_tier=SizeTier.MEDIUM)
+    art = build_sizing(answers, chart_dir=None).values["artifactory"]
+
+    for name in ("frontend", "jfbus", "jfmelt"):
+        assert art[name]["replicaCount"] == 2
+    for name in ("apptrust", "unifiedpolicy", "rtfs", "platformfederation", "evaluation"):
+        assert name not in art

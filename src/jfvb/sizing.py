@@ -34,20 +34,38 @@ from jfvb.rules.base import RuleResult
 # automatically -- every one of these must be set explicitly alongside
 # artifactory.artifactory.replicaCount, or they silently stay under-scaled
 # relative to the Artifactory pool they front/support.
-_ALIGNED_MICROSERVICES = (
-    "frontend",
-    "rtfs",
-    "jfbus",
-    "jfmelt",
-    "apptrust",
-    "unifiedpolicy",
-    "evaluation",
-    "platformfederation",
-)
+#
+# frontend/jfbus/jfmelt ship `enabled: true` by chart default regardless of
+# jfvb's product selection, so they're always kept aligned. rtfs and
+# platformfederation are only relevant when Federation was selected;
+# apptrust and unifiedpolicy only when AppTrust was (mirroring modules.py's
+# own gating for those same two). `evaluation` has no jfvb product toggle
+# at all -- see modules.py -- so it's never included: it stays at the
+# chart's disabled default either way, and setting a replica count for a
+# disabled service would just be unused clutter (modules.py's own
+# documented anti-clutter rule).
+_ALWAYS_ALIGNED_MICROSERVICES = ("frontend", "jfbus", "jfmelt")
 
 
-def _aligned_microservice_replicas(art_replicas: int) -> dict[str, Any]:
-    return {name: {"replicaCount": art_replicas} for name in _ALIGNED_MICROSERVICES}
+def _aligned_microservices_for(answers: Answers) -> tuple[str, ...]:
+    names = list(_ALWAYS_ALIGNED_MICROSERVICES)
+    if answers.products.federation:
+        names += ["rtfs", "platformfederation"]
+    if answers.products.apptrust:
+        names += ["apptrust", "unifiedpolicy"]
+    return tuple(names)
+
+
+def _artifactory_replica_patch(art_replicas: int, answers: Answers) -> dict[str, Any]:
+    """The artifactory.artifactory.replicaCount override plus every aligned
+    microservice's replicaCount, kept in one place since both the
+    tier-based and custom sizing paths need the identical fragment."""
+
+    names = _aligned_microservices_for(answers)
+    return {
+        "artifactory": {"replicaCount": art_replicas},
+        **{name: {"replicaCount": art_replicas} for name in names},
+    }
 
 
 def _get_path(node: dict[str, Any], path: list[str]) -> Any:
@@ -130,8 +148,7 @@ def _reference_overrides(
     art = ref["artifactory"]
     patch: dict[str, Any] = {
         "artifactory": {
-            "artifactory": {"replicaCount": art["replicas"]},
-            **_aligned_microservice_replicas(art["replicas"]),
+            **_artifactory_replica_patch(art["replicas"], answers),
             "postgresql": {
                 "primary": {
                     "resources": {
@@ -196,10 +213,7 @@ def _custom_sizing(answers: Answers) -> RuleResult:
     xray_replicas = int(custom.get("xray_replicas", 1))
 
     patch: dict[str, Any] = {
-        "artifactory": {
-            "artifactory": {"replicaCount": art_replicas},
-            **_aligned_microservice_replicas(art_replicas),
-        },
+        "artifactory": _artifactory_replica_patch(art_replicas, answers),
     }
     if answers.products.xray:
         patch["xray"] = {
@@ -207,14 +221,15 @@ def _custom_sizing(answers: Answers) -> RuleResult:
             "autoscaling": {"minReplicas": xray_replicas},
         }
 
+    aligned = _aligned_microservices_for(answers)
     notes = [
         "Custom sizing tier: no reference-architecture table applies. Only "
         f"replica counts were set (artifactory={art_replicas}, including "
-        "its aligned frontend/rtfs/jfbus/jfmelt/apptrust/unifiedpolicy/"
-        f"evaluation/platformfederation microservices; xray={xray_replicas}"
-        ") -- resource requests/limits, HPA bounds, and DB sizing are left "
-        "at chart defaults. Review manually or provide vCPU/memory numbers "
-        "explicitly before going to production.",
+        f"its aligned {', '.join(aligned)} microservices; "
+        f"xray={xray_replicas}) -- resource requests/limits, HPA bounds, "
+        "and DB sizing are left at chart defaults. Review manually or "
+        "provide vCPU/memory numbers explicitly before going to "
+        "production.",
     ]
     return RuleResult(values=patch, notes=notes)
 
@@ -263,12 +278,17 @@ def build_sizing(answers: Answers, chart_dir: Path | None = None) -> RuleResult:
     overrides = _reference_overrides(ref, chart_baseline, answers)
     patch = deep_merge(chart_baseline, overrides)
 
+    aligned = _aligned_microservices_for(answers)
     notes.append(
         f"Sizing tier '{tier_name}': replica counts, nginx replicas, and "
         "PostgreSQL max_connections match between the chart's bundled "
-        "profile and the reference architecture at this tier. The bundled "
-        "PostgreSQL CPU/memory requests were corrected to the reference "
-        "architecture's recommended value ("
+        "profile and the reference architecture at this tier. Artifactory's "
+        f"aligned {', '.join(aligned)} microservices were also set to the "
+        "same replica count -- the chart documents these as needing to be "
+        "kept in sync with artifactory.replicaCount manually; the "
+        "reference architecture doesn't publish separate numbers for them. "
+        "The bundled PostgreSQL CPU/memory requests were corrected to the "
+        "reference architecture's recommended value ("
         f"{_aws_annotation(ref['artifactory']['postgres'])} for "
         "Artifactory's DB"
         + (
