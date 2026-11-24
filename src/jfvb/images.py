@@ -40,7 +40,7 @@ from jfvb import helm_client
 from jfvb.helm_client import (
     CHART_NAME,
     JFROG_REPO_NAME,
-    JFROG_REPO_URL,
+    JFROG_REPO_ADD_CMD,
     ProgressCallback,
 )
 
@@ -200,7 +200,7 @@ def list_images(
 def render_chart_download_instructions(chart_version: str) -> str:
     """Copy-pasteable steps to fetch the chart package for air-gapped install.
 
-    Air-gapped clusters cannot reach charts.jfrog.io, so the chart itself
+    Air-gapped clusters cannot reach releases.jfrog.io, so the chart itself
     (not just the container images) must be pulled on a connected machine
     and transferred in as a `.tgz`.
     """
@@ -212,7 +212,7 @@ def render_chart_download_instructions(chart_version: str) -> str:
             f"# Chart version: {version}",
             "#",
             "# --- Download the Helm chart (on a machine WITH internet) ---",
-            f"# helm repo add {JFROG_REPO_NAME} {JFROG_REPO_URL}",
+            f"# {JFROG_REPO_ADD_CMD}",
             f"# helm repo update {JFROG_REPO_NAME}",
             f"# helm pull {JFROG_REPO_NAME}/{CHART_NAME} --version {version}",
             f"# # produces {package} -- copy this file into the air-gapped environment",

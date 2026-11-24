@@ -101,6 +101,7 @@ one way to keep the credential in an actual Secret object.
 from __future__ import annotations
 
 from jfvb.answers import Answers, FilestoreMode, FilestoreType, SizeTier
+from jfvb.helm_client import JFROG_REPO_NAME
 from jfvb.refdata import get_tier
 from jfvb.rules.base import RuleResult, SetupStep
 
@@ -211,7 +212,7 @@ def _out_of_band_credential_step(
         phase="filestore",
         title=title,
         commands=[
-            f"helm upgrade --install {answers.release_name} jfrog/jfrog-platform \\",
+            f"helm upgrade --install {answers.release_name} {JFROG_REPO_NAME}/jfrog-platform \\",
             f"  --namespace {answers.namespace} \\",
             f"  {set_args} \\",
             "  -f customvalues.yaml",

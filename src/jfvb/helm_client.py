@@ -1,7 +1,7 @@
 """Thin wrapper around a locally installed `helm` binary.
 
 jfvb never vendors chart data -- everything is fetched live from
-`https://charts.jfrog.io` for the chart version the user asks about, per
+the authenticated JFrog Helm repo (`https://releases.jfrog.io`) for the chart version the user asks about, per
 the "always live" design choice. This keeps sizing baselines, the image
 list, and the airgap-key validation step honest against the actual chart
 release being installed, at the cost of requiring `helm` + network access
@@ -28,8 +28,22 @@ from pathlib import Path
 from tempfile import mkdtemp
 from typing import Callable
 
-JFROG_REPO_NAME = "jfrog"
-JFROG_REPO_URL = "https://charts.jfrog.io"
+# The chart is pulled from the *authenticated* releases.jfrog.io Helm repo.
+# jfvb never handles credentials: the user registers the repo once on the
+# client machine, e.g.
+#   helm repo add authenticated-charts-releases \
+#     https://releases.jfrog.io/artifactory/api/helm/authenticated-charts-releases \
+#     --username <USERNAME> --password <PASSWORD>
+# and helm re-uses the stored credentials. Override the local repo name with
+# the JFVB_HELM_REPO environment variable if you registered it differently.
+JFROG_REPO_NAME = os.environ.get("JFVB_HELM_REPO", "authenticated-charts-releases")
+JFROG_REPO_URL = (
+    "https://releases.jfrog.io/artifactory/api/helm/authenticated-charts-releases"
+)
+JFROG_REPO_ADD_CMD = (
+    f"helm repo add {JFROG_REPO_NAME} {JFROG_REPO_URL} "
+    "--username <USERNAME> --password <PASSWORD>"
+)
 CHART_NAME = "jfrog-platform"
 
 # Called with a human-readable string describing what's currently running
@@ -129,7 +143,7 @@ def _run(
                     proc.communicate()
                     raise HelmError(
                         f"'{display}' timed out after {timeout}s with no "
-                        "response. This usually means charts.jfrog.io isn't "
+                        "response. This usually means releases.jfrog.io isn't "
                         "reachable (check your network/VPN/proxy). You can "
                         "re-run with --offline to skip live helm calls, or "
                         "--no-validate to skip the final dry-run."
@@ -151,7 +165,12 @@ def _explain_failure(display: str, returncode: int, stderr: str) -> str:
     lowered = stderr.lower()
     hint = ""
     if "no cached repo" in lowered or "no repositories" in lowered:
-        hint = " (hint: the JFrog chart repo may not be configured -- this should be automatic; try re-running)"
+        hint = f" (hint: the JFrog chart repo may not be configured -- run: {JFROG_REPO_ADD_CMD})"
+    elif any(t in lowered for t in ("401", "403", "unauthorized", "forbidden")):
+        hint = (
+            " (hint: authentication failed -- re-run `helm repo add` with valid "
+            f"credentials: {JFROG_REPO_ADD_CMD} --force-update)"
+        )
     elif "not found" in lowered and "version" in lowered:
         hint = (
             " (hint: that chart version may not exist -- run `helm search "
@@ -169,7 +188,7 @@ def _explain_failure(display: str, returncode: int, stderr: str) -> str:
             "certificate signed by unknown authority",
         )
     ):
-        hint = " (hint: looks network-related -- check connectivity/VPN/proxy to charts.jfrog.io)"
+        hint = " (hint: looks network-related -- check connectivity/VPN/proxy to releases.jfrog.io)"
     elif "execution error at" in lowered or "template:" in lowered:
         # A chart-side `fail`/template error -- the chart itself is telling
         # you what's wrong (e.g. jfrog-platform 11.6.0 requires nginx TLS to
@@ -182,23 +201,25 @@ def _explain_failure(display: str, returncode: int, stderr: str) -> str:
 
 
 def ensure_repo(on_progress: ProgressCallback | None = None) -> None:
-    """Add (idempotently) and update the JFrog chart repo."""
+    """Verify the authenticated JFrog chart repo is configured, then update it.
 
-    helm_path = _require_helm()
+    The repo (with credentials) must already be registered on the client via
+    `helm repo add`; jfvb deliberately does not add it, so no credentials are
+    ever passed through or stored by this tool.
+    """
+
+    configured: list[str] = []
     try:
-        subprocess.run(
-            [helm_path, "repo", "add", JFROG_REPO_NAME, JFROG_REPO_URL],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )  # exit code is non-zero (harmlessly) if the repo already exists
-    except subprocess.TimeoutExpired as exc:
+        result = _run(["repo", "list", "-o", "json"], on_progress=on_progress)
+        configured = [r["name"] for r in json.loads(result.stdout)]
+    except (HelmError, json.JSONDecodeError, KeyError, TypeError):
+        pass  # `helm repo list` exits non-zero when no repos exist at all
+    if JFROG_REPO_NAME not in configured:
         raise HelmError(
-            "'helm repo add' timed out after 15s -- helm shouldn't need "
-            "the network just to register a repo URL locally; something "
-            "is likely wrong with the local helm config/cache."
-        ) from exc
+            f"Helm repo '{JFROG_REPO_NAME}' is not configured on this machine. "
+            f"Add it with credentials first:\n  {JFROG_REPO_ADD_CMD}\n"
+            "(set JFVB_HELM_REPO if you registered it under a different name)."
+        )
     _run(["repo", "update", JFROG_REPO_NAME], on_progress=on_progress)
 
 

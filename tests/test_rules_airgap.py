@@ -77,5 +77,5 @@ def test_airgap_registry_step_includes_chart_download():
     registry_steps = [s for s in result.steps if s.phase == "registry"]
     assert len(registry_steps) == 1
     commands = "\n".join(registry_steps[0].commands)
-    assert "helm pull jfrog/jfrog-platform --version <CHART_VERSION>" in commands
+    assert "helm pull authenticated-charts-releases/jfrog-platform --version <CHART_VERSION>" in commands
     assert "images.txt" in commands
