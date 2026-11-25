@@ -82,6 +82,7 @@ def test_list_versions_raises_on_malformed_json(tmp_path, monkeypatch):
         tmp_path,
         """\
         #!/usr/bin/env bash
+        if [ "$1 $2" = "repo list" ]; then echo '[{"name":"authenticated-charts-releases","url":"u"}]'; exit 0; fi
         if [ "$1" = "repo" ]; then exit 0; fi
         echo "not json"
         """,
@@ -97,6 +98,7 @@ def test_list_versions_raises_when_empty(tmp_path, monkeypatch):
         tmp_path,
         """\
         #!/usr/bin/env bash
+        if [ "$1 $2" = "repo list" ]; then echo '[{"name":"authenticated-charts-releases","url":"u"}]'; exit 0; fi
         if [ "$1" = "repo" ]; then exit 0; fi
         echo "[]"
         """,
@@ -119,3 +121,17 @@ def test_explain_failure_flags_missing_version():
         "helm pull jfrog/jfrog-platform", 1, "Error: chart version 99.99.99 not found"
     )
     assert "helm search repo" in message
+
+
+def test_ensure_repo_errors_when_repo_not_configured(tmp_path, monkeypatch):
+    bin_dir = _write_fake_helm(
+        tmp_path,
+        """\
+        #!/usr/bin/env bash
+        if [ "$1 $2" = "repo list" ]; then echo '[]'; exit 0; fi
+        exit 0
+        """,
+    )
+    _prepend_path(monkeypatch, bin_dir)
+    with pytest.raises(HelmError, match="helm repo add authenticated-charts-releases"):
+        helm_client.ensure_repo()

@@ -36,6 +36,7 @@ from jfvb.chart_compat import (
     feature_active,
     get_feature,
 )
+from jfvb.helm_client import JFROG_REPO_ADD_CMD, JFROG_REPO_NAME
 from jfvb.rules.base import RuleResult, SetupStep
 
 name = "airgap"
@@ -129,9 +130,9 @@ def apply(answers: Answers) -> RuleResult:
                     "# 1. On a machine WITH internet: download the chart package and",
                     "#    transfer jfrog-platform-<VERSION>.tgz into the air-gap.",
                     "#    (Full copy-pasteable steps are also at the top of images.txt.)",
-                    "helm repo add jfrog https://charts.jfrog.io",
-                    "helm repo update jfrog",
-                    "helm pull jfrog/jfrog-platform --version <CHART_VERSION>",
+                    JFROG_REPO_ADD_CMD,
+                    f"helm repo update {JFROG_REPO_NAME}",
+                    f"helm pull {JFROG_REPO_NAME}/jfrog-platform --version <CHART_VERSION>",
                     "",
                     "# 2. `jfvb build` already generated images.txt (and mirror-images.sh, if a",
                     "# target registry was set) next to customvalues.yaml when it had helm/network",

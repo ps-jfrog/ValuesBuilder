@@ -147,8 +147,8 @@ def _run_build(
 
     if not offline:
         try:
-            with console.status("[cyan]Contacting charts.jfrog.io...[/cyan]") as status:
-                progress = _status_reporter(status, "Contacting charts.jfrog.io")
+            with console.status("[cyan]Contacting releases.jfrog.io...[/cyan]") as status:
+                progress = _status_reporter(status, "Contacting releases.jfrog.io")
                 if not chart_version:
                     chart_version = helm_client.latest_version(on_progress=progress)
                     repo_synced = True

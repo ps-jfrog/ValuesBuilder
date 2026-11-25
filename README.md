@@ -33,6 +33,16 @@ Requires Python 3.10+ and a local `helm` 3.x binary on `PATH` (used to
 fetch chart data live -- nothing is vendored, so results always reflect
 the actual chart version you're targeting).
 
+Charts are pulled from the **authenticated** `releases.jfrog.io` Helm repo.
+Register it once on the client machine (jfvb never handles credentials;
+set `JFVB_HELM_REPO` if you use a different local repo name):
+
+```bash
+helm repo add authenticated-charts-releases \
+  https://releases.jfrog.io/artifactory/api/helm/authenticated-charts-releases \
+  --username <USERNAME> --password <PASSWORD>
+```
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate

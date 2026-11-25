@@ -8,7 +8,7 @@ from pathlib import Path
 
 from jfvb.answers import Answers
 from jfvb.builder import BuildOutput
-from jfvb.helm_client import JFROG_REPO_NAME, JFROG_REPO_URL
+from jfvb.helm_client import JFROG_REPO_ADD_CMD, JFROG_REPO_NAME
 from jfvb.rules.base import PHASE_ORDER, SetupStep
 
 PHASE_TITLES = {
@@ -29,7 +29,7 @@ PHASE_TITLES = {
 def _install_step(answers: Answers, chart_version: str | None) -> SetupStep:
     version = chart_version or "<CHART_VERSION>"
     commands = [
-        f"helm repo add {JFROG_REPO_NAME} {JFROG_REPO_URL}",
+        f"# Skip if already configured: {JFROG_REPO_ADD_CMD}",
         f"helm repo update {JFROG_REPO_NAME}",
         f"kubectl create namespace {answers.namespace} --dry-run=client -o yaml | kubectl apply -f -",
     ]
